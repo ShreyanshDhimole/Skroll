@@ -2,4 +2,4 @@ fastapi
 uvicorn
 yt-dlp
 webvtt-py
-openai-whisper
+
