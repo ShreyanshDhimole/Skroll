@@ -4,13 +4,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 import webvtt
-import whisper
 
 app = FastAPI()
 
-WHISPER_MODEL = "base"
 LANGUAGE = "en"
-ENABLE_WHISPER_FALLBACK = True  # set False if you want captions-only
 
 
 class YouTubeRequest(BaseModel):
@@ -43,10 +40,13 @@ def extract_transcript(youtube_url: str):
         tmpdir = Path(tmpdir)
 
         # 1. List subtitles
-        stdout, _, _ = run_cmd(["yt-dlp", "--list-subs", youtube_url])
+        stdout, stderr, _ = run_cmd(["yt-dlp", "--list-subs", youtube_url])
 
         has_manual = "Available subtitles" in stdout
-        has_auto = "Available automatic captions" in stdout
+        has_auto = (
+            "Available automatic captions" in stdout
+            or "automatic captions" in stdout.lower()
+        )
 
         # 2. Manual captions
         if has_manual:
@@ -78,33 +78,11 @@ def extract_transcript(youtube_url: str):
             if vtts:
                 return "youtube_auto_caption", parse_vtt(vtts[0])
 
-        # 4. Whisper fallback (optional)
-        if not ENABLE_WHISPER_FALLBACK:
-            raise HTTPException(
-                status_code=400,
-                detail="Captions not accessible and Whisper fallback disabled"
-            )
-
-        audio_path = tmpdir / "audio.m4a"
-        run_cmd([
-            "yt-dlp", "-f", "bestaudio",
-            "-o", str(audio_path),
-            youtube_url
-        ])
-
-        model = whisper.load_model(WHISPER_MODEL)
-        result = model.transcribe(str(audio_path), language=LANGUAGE)
-
-        transcript = [
-            {
-                "text": seg["text"].strip(),
-                "start": seg["start"],
-                "end": seg["end"]
-            }
-            for seg in result["segments"]
-        ]
-
-        return "whisper_fallback", transcript
+        # 4. No captions accessible
+        raise HTTPException(
+            status_code=400,
+            detail="Captions exist but could not be accessed programmatically"
+        )
 
 
 @app.post("/extract-transcript")
